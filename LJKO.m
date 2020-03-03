@@ -2,7 +2,7 @@ clear
 close all
 
 % load mesh
-load('sq_mesh5')
+load('tri_mesh4')
 
 %% DEFINITION OF THE GRADIENT FLOW:
 
@@ -38,19 +38,19 @@ ddE =@(rho,x,y) m*rho.^(m-2);
 % exact solution for the F-P
 % rho0 = u(cc(:,1),cc(:,2),0);
 
-% gaussian density
-initial =@(x,y) exp((-(x-0.5).^2-(y-0.5).^2)/0.01);
-rho0 = initial(cc(:,1),cc(:,2));
+% % gaussian density
+% initial =@(x,y) exp((-(x-0.5).^2-(y-0.5).^2)/0.01);
+% rho0 = initial(cc(:,1),cc(:,2));
 
 % % delta density
 % initial =@(x,y) 100*(0.47<=x).*(x<=0.53).*(0.47<=y).*(y<=0.53);
 % rho0 = initial(cc(:,1),cc(:,2));
 
-% % cross shaped initial condition
-% rot = [sqrt(2)/2  sqrt(2)/2; - sqrt(2)/2  sqrt(2)/2];
-% initial = @(x,y) (abs(x-0.5)<0.1).*(abs(y-0.5)<0.4)+(abs(y-0.5)<0.1).*(abs(x-0.5)<0.4);
-% prot = ([cc(:,1) cc(:,2)]-0.5)*rot+0.5;
-% rho0 = initial(prot(:,1),prot(:,2)); rho0(rho0>0) = rho0(rho0>0)./rho0(rho0>0);
+% cross shaped initial condition
+rot = [sqrt(2)/2  sqrt(2)/2; - sqrt(2)/2  sqrt(2)/2];
+initial = @(x,y) (abs(x-0.5)<0.1).*(abs(y-0.5)<0.4)+(abs(y-0.5)<0.1).*(abs(x-0.5)<0.4);
+prot = ([cc(:,1) cc(:,2)]-0.5)*rot+0.5;
+rho0 = initial(prot(:,1),prot(:,2)); rho0(rho0>0) = rho0(rho0>0)./rho0(rho0>0);
 
 % total mass
 mass = sum(area.*rho0);
@@ -63,7 +63,7 @@ mass = sum(area.*rho0);
 flag = 3;
 
 T = 1; % integration time
-tau0 = 0.05; % initial time step
+tau0 = 0.01; % initial time step
 tau_max = 0.1; % maximum time step
 eps_0 = 1e-6; % tolerance
 
@@ -88,12 +88,11 @@ RK = Mx\(Rs'*Ms); % reconstruction operator on the cells
 
 %% INITIALIZATION
 
-phit = dE(rho0,cc(:,1),cc(:,2));
+%phit = dE(rho0,cc(:,1),cc(:,2));
+phit = zeros(ncell,1);
 rhot = rho0;
-rhotn = max(5e-2,rho0); rhotn = rhotn*mass/sum(area.*rhotn);
-%rhotn = mass./area;
-stn = ones(ncell,1);
-uk = [phit; rhotn; stn];
+st = ones(ncell,1);
+uk = [phit; mass/sum(area)*ones(ncell,1); st];
 
 time = 0;
 itn = 0;
@@ -103,6 +102,7 @@ ts = time;
 
 
 %% TIME INTEGRATION
+
 
 while abs(time-T) > 1e-10
     
@@ -119,11 +119,12 @@ while abs(time-T) > 1e-10
     itk2 = 0;
     errs = [];
     tit = 0;
+    
     mu0 = sum(uk(ncell+1:2*ncell).*uk(2*ncell+1:3*ncell))/ncell;
     gamma = gamma0;
     mu = mu0/gamma;
     
-    % outer cycle
+    % OUTER CYCLE
     while true
         
         Fk = Fk2D(ind,cc,Mx,grad,div,Rs,RK,RH,rhot,uk,tau,dE,0);
@@ -137,17 +138,17 @@ while abs(time-T) > 1e-10
         end
         itk1 = itk1+1;
         if itk1 > k1max
-            time = time-tau;
-            tau0 = tau0/2;
-            tau = tau0;
-            time = time+tau;
-            uk(1:ncell) = dE(rhot,cc(:,1),cc(:,2));
-            uk(ncell+1:2*ncell) = rhotn;
+            %time = time-tau;
+            %tau0 = tau0/2;
+            %tau = tau0;
+            %time = time+tau;
+            uk(1:ncell) = zeros(ncell,1);
+            uk(ncell+1:2*ncell) = mass/sum(area)*ones(ncell,1);
             uk(2*ncell+1:end) = ones(ncell,1);
             itk1 = 0;
             itk2 = 0;
             errs = [];
-            mu0 = sum(uk(ncell+1:2*ncell).*uk(2*ncell+1:3*ncell))/ncell;
+            mu0 = 10*mu0;
             gamma = gamma0;
             mu = mu0/gamma;
             fprintf('%10s %4i %24s %1.5e \n','iteration ',itn,', decrease time step to',tau)
@@ -156,7 +157,8 @@ while abs(time-T) > 1e-10
         mu = gamma*mu;
         eps_mu = eps_0;
         
-        %inner cycle
+        % INNER CYCLE
+        
         itk2 = 0;
         while true
             
@@ -166,11 +168,6 @@ while abs(time-T) > 1e-10
                fprintf('%12s %4i %8s %1.4e \n','Inner step: ',itk2,'Error: ',delta_mu)
             end
             if delta_mu < eps_mu
-                if itk1==1
-                    if itk2<8 && 2*tau0<=tau_max
-                        tau0 = 2*tau0;
-                    end
-                end
                 tit = tit+itk2;
                 break
             end
@@ -219,22 +216,25 @@ while abs(time-T) > 1e-10
     
     fprintf('%11s %4i %22s %4i %7s %1.4e \n','Time step: ',itn,'Total Newton iterations: ',tit,'Error: ',delta_0)
     
-    phit = uk(1:ncell);
+    phit = zeros(ncell,1);
     rhot = uk(ncell+1:2*ncell);
-    rhotn = max(1e-2,rhot); rhotn=rhotn*mass/sum(area.*rhotn);
-    uk(ncell+1:2*ncell) = rhotn;
+    uk(ncell+1:2*ncell) = mass/sum(area)*ones(ncell,1);
     uk(2*ncell+1:end) = ones(ncell,1);
     
     Energy = [Energy; sum(E(rhot,cc(:,1),cc(:,2)).*area)];
     ts = [ts; time];
     
     Frho = scatteredInterpolant(cc,rhot);
+    Frho.ExtrapolationMethod = 'nearest';
     Zrho = Frho(nodes(:,1),nodes(:,2));
     figure(3)
     trisurf(cells(:,2:end),nodes(:,1),nodes(:,2),Zrho)
     %axis([0 1 0 1 0 1.2])
+    view([0 90])
     colormap('jet')
-  
+    shading interp
+    %axis equal
+    %axis off
 
 end
 
